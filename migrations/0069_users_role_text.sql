@@ -1,0 +1,2 @@
+-- No-op under MySQL: users.role has been plain VARCHAR since creation
+-- (0003_users.sql) — there's no enum here to widen to text.

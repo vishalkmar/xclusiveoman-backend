@@ -1,0 +1,117 @@
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  newId
+} = require('../utils/id.js');
+
+const adminSecurityModel = {
+  async get() {
+    const { rows } = await pool.query('SELECT * FROM admin_security ORDER BY created_at ASC LIMIT 1');
+    return rows[0] || null;
+  },
+
+  async ensureRow() {
+    const existing = await this.get();
+    if (existing) return existing;
+    const id = newId();
+    await pool.query('INSERT INTO admin_security (id) VALUES (?)', [id]);
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [id]);
+    return rows[0];
+  },
+
+  // Stashes a freshly generated secret while enrolment is in progress.
+  // totp_enabled stays false — the login flow must not start demanding
+  // codes until activate() confirms the secret was actually scanned.
+  async setPendingSecret(secret) {
+    const row = await this.ensureRow();
+    await pool.query(
+      'UPDATE admin_security SET totp_secret = ?, totp_enabled = false, activated_at = NULL, updated_at = now() WHERE id = ?',
+      [secret, row.id]
+    );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
+    return rows[0];
+  },
+
+  // `step` is the time-step counter of the code that confirmed setup — it's
+  // recorded as spent so that exact code can't be replayed at the login
+  // screen moments later.
+  async activate(step) {
+    const row = await this.ensureRow();
+    await pool.query(
+      'UPDATE admin_security SET totp_enabled = true, last_totp_step = ?, activated_at = now(), updated_at = now() WHERE id = ?',
+      [step, row.id]
+    );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
+    return rows[0];
+  },
+
+  // Marks a freshly accepted code's window as consumed — conditionally, so
+  // two logins racing with the same on-screen code can't both win: only the
+  // first UPDATE moves last_totp_step forward, the second matches no row.
+  // Returns true if this call is the one that claimed the step.
+  async recordUsedStep(step) {
+    const row = await this.get();
+    if (!row) return false;
+    const { rowCount } = await pool.query(
+      'UPDATE admin_security SET last_totp_step = ?, updated_at = now() WHERE id = ? AND (last_totp_step IS NULL OR last_totp_step < ?)',
+      [step, row.id, step]
+    );
+    return rowCount > 0;
+  },
+
+  // Wipes the secret too, not just the flag — a disabled-then-re-enabled
+  // setup should force a fresh QR scan rather than silently reactivating a
+  // secret someone may have removed from their phone.
+  async disable() {
+    const row = await this.ensureRow();
+    await pool.query(
+      'UPDATE admin_security SET totp_enabled = false, totp_secret = NULL, activated_at = NULL, updated_at = now() WHERE id = ?',
+      [row.id]
+    );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
+    return rows[0];
+  },
+
+  // Email verification (0090_admin_email_2fa.sql). The address sits in
+  // email_2fa_pending_address until a code sent to it is confirmed, so a
+  // typo'd inbox can never become the one sign-in depends on.
+  async setEmailPendingAddress(address) {
+    const row = await this.ensureRow();
+    await pool.query(
+      'UPDATE admin_security SET email_2fa_pending_address = ?, updated_at = now() WHERE id = ?',
+      [address, row.id]
+    );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
+    return rows[0];
+  },
+
+  async activateEmail() {
+    const row = await this.ensureRow();
+    await pool.query(
+      `UPDATE admin_security
+         SET email_2fa_enabled = true, email_2fa_address = email_2fa_pending_address,
+             email_2fa_pending_address = NULL, email_2fa_activated_at = now(), updated_at = now()
+       WHERE id = ?`,
+      [row.id]
+    );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
+    return rows[0];
+  },
+
+  async disableEmail() {
+    const row = await this.ensureRow();
+    await pool.query(
+      `UPDATE admin_security
+         SET email_2fa_enabled = false, email_2fa_address = NULL, email_2fa_pending_address = NULL,
+             email_2fa_activated_at = NULL, updated_at = now()
+       WHERE id = ?`,
+      [row.id]
+    );
+    const { rows } = await pool.query('SELECT * FROM admin_security WHERE id = ?', [row.id]);
+    return rows[0];
+  },
+};
+
+module.exports.adminSecurityModel = adminSecurityModel;

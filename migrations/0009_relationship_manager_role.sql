@@ -1,0 +1,4 @@
+-- No-op under MySQL: users.role is plain VARCHAR from creation (0003_users.sql),
+-- not a restrictive enum, so there's no type to widen with a new value. Kept
+-- as an empty file rather than renumbered — migrate.js tracks applied
+-- migrations by filename.

@@ -1,0 +1,2 @@
+ALTER TABLE transfers
+  ADD COLUMN images JSON DEFAULT (JSON_ARRAY());

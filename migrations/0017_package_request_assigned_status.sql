@@ -1,0 +1,3 @@
+-- No-op under MySQL: 'assigned' is already folded into package_requests.status's
+-- ENUM list in 0016_package_requests.sql (in the same AFTER 'submitted'
+-- position this file originally inserted it at).

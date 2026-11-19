@@ -1,0 +1,13 @@
+node_modules/
+.env
+*.log
+npm-debug.log*
+.DS_Store
+.env.local
+storage/
+
+# Not pushed: local tooling + readme
+.claude/
+.agents/
+README.md
+readme.md

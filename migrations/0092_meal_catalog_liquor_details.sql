@@ -1,0 +1,9 @@
+ALTER TABLE meals
+  ADD COLUMN category VARCHAR(20) NOT NULL DEFAULT 'veg',
+  ADD COLUMN is_liquor TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN liquor_brand VARCHAR(255) NULL,
+  ADD COLUMN liquor_price_quarter DECIMAL(12,2) NULL,
+  ADD COLUMN liquor_price_half DECIMAL(12,2) NULL,
+  ADD COLUMN liquor_price_full DECIMAL(12,2) NULL,
+  ADD COLUMN liquor_ml INT UNSIGNED NULL,
+  ADD COLUMN liquor_category VARCHAR(30) NULL;

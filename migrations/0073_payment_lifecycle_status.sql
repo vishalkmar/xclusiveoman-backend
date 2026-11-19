@@ -1,0 +1,2 @@
+-- No-op under MySQL: awaiting_payment/awaiting_confirmation/cancelled are
+-- already folded into payments.status's ENUM list in 0008_payments.sql.

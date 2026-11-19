@@ -1,0 +1,2 @@
+-- No-op under MySQL — same reason as 0009_relationship_manager_role.sql:
+-- users.role is plain VARCHAR, not an enum needing a new value added.

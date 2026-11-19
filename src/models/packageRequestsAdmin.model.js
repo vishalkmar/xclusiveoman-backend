@@ -1,0 +1,202 @@
+const {
+  pool
+} = require('../db/pool.js');
+
+const {
+  replaceItinerary
+} = require('./packageRequests.model.js');
+
+// Admin-side queries only (listing with joins/pagination/search, lead-manager
+// assignment). Detail sub-lists (hotels/tours/transfers/activities/travelers)
+// are reused as-is from models/packageRequests.model.js by the controller —
+// not duplicated here.
+
+const JOINS = `
+  FROM package_requests pr
+  JOIN agencies a ON a.id = pr.agency_id
+  JOIN users u ON u.id = pr.created_by_user_id
+  LEFT JOIN users lm ON lm.id = pr.lead_manager_user_id
+  LEFT JOIN users pub ON pub.id = pr.published_by_user_id
+`;
+
+const SELECT_COLUMNS = `
+  pr.*,
+  a.name AS agency_name,
+  u.full_name AS agent_full_name,
+  u.email AS agent_email,
+  lm.full_name AS lead_manager_full_name,
+  lm.email AS lead_manager_email,
+  pub.full_name AS published_by_full_name
+`;
+
+// Item 1: the inbox only ever shows requests the agent has actually
+// submitted — draft rows (unused by the current agent flow, which always
+// submits directly, but kept in the schema for fidelity) are excluded.
+// `leadManagerUserId` (Team Portal's Quotes & Pricing page, LM scoping —
+// packageRequestsAdmin.controller.js#list) and `agencyIds` (same page, RM
+// scoping) are both server-set from the requesting user's own id/assigned
+// agencies, never a client-suppliable filter — same posture as
+// agencies.model.js#listAgencies' own agencyIds param.
+// `agencyId` / `assignedTo` are the Quote Inbox's own client filters —
+// distinct from the server-set scoping params above, and ANDed with them.
+function buildFilters({ status, destination, search, submittedFrom, submittedTo, agencyId, assignedTo, leadManagerUserId, agencyIds }) {
+  const clauses = [`pr.status <> 'draft'`];
+  const values = [];
+
+  if (status) {
+    clauses.push(`pr.status = ?`);
+    values.push(status);
+  }
+  if (agencyId) {
+    clauses.push(`pr.agency_id = ?`);
+    values.push(agencyId);
+  }
+  if (assignedTo === 'unassigned') {
+    clauses.push(`pr.lead_manager_user_id IS NULL`);
+  } else if (assignedTo) {
+    clauses.push(`pr.lead_manager_user_id = ?`);
+    values.push(assignedTo);
+  }
+  if (leadManagerUserId) {
+    clauses.push(`pr.lead_manager_user_id = ?`);
+    values.push(leadManagerUserId);
+  }
+  if (agencyIds) {
+    clauses.push(`pr.agency_id IN (?)`);
+    values.push(agencyIds);
+  }
+  if (destination) {
+    clauses.push(`LOWER(pr.destination) LIKE LOWER(?)`);
+    values.push(`%${destination}%`);
+  }
+  if (submittedFrom) {
+    clauses.push(`pr.created_at >= ?`);
+    values.push(submittedFrom);
+  }
+  if (submittedTo) {
+    clauses.push(`pr.created_at < (? + INTERVAL 1 DAY)`);
+    values.push(submittedTo);
+  }
+  if (search) {
+    clauses.push(`(LOWER(pr.id) LIKE LOWER(?) OR LOWER(u.full_name) LIKE LOWER(?) OR LOWER(a.name) LIKE LOWER(?) OR LOWER(pr.destination) LIKE LOWER(?))`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+
+  return { where: `WHERE ${clauses.join(' AND ')}`, values };
+}
+
+async function listPackageRequestsForAdmin(
+  {
+    status, destination, search, submittedFrom, submittedTo, agencyId, assignedTo, leadManagerUserId, agencyIds, page, pageSize,
+  } = {}
+) {
+  const { where, values } = buildFilters({ status, destination, search, submittedFrom, submittedTo, agencyId, assignedTo, leadManagerUserId, agencyIds });
+
+  const { rows: countRows } = await pool.query(
+    `SELECT COUNT(*) AS count ${JOINS} ${where}`,
+    values
+  );
+  const total = Number(countRows[0].count);
+
+  const limit = Math.max(1, Math.min(100, Number(pageSize) || 20));
+  const currentPage = Math.max(1, Number(page) || 1);
+  const offset = (currentPage - 1) * limit;
+
+  const { rows } = await pool.query(
+    `SELECT ${SELECT_COLUMNS} ${JOINS} ${where}
+     ORDER BY pr.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...values, limit, offset]
+  );
+
+  return { rows, total, page: currentPage, pageSize: limit };
+}
+
+module.exports.listPackageRequestsForAdmin = listPackageRequestsForAdmin;
+
+// Every matching row (no pagination), just the columns the statistics need —
+// services/requestStats.service.js aggregates them.
+async function listPackageRequestsForStats(filters = {}) {
+  const { where, values } = buildFilters(filters);
+  const { rows } = await pool.query(
+    `SELECT pr.id, pr.status, pr.created_at, pr.updated_at, pr.published_at, pr.sell_price,
+            pr.lead_manager_user_id, lm.full_name AS lead_manager_full_name,
+            pr.agency_id, a.name AS agency_name, pr.destination, pr.pax_adults, pr.pax_children, pr.date_from
+     ${JOINS} ${where}`,
+    values
+  );
+  return rows;
+}
+
+module.exports.listPackageRequestsForStats = listPackageRequestsForStats;
+
+async function findPackageRequestForAdmin(id) {
+  const { rows } = await pool.query(
+    `SELECT ${SELECT_COLUMNS} ${JOINS} WHERE pr.id = ?`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+module.exports.findPackageRequestForAdmin = findPackageRequestForAdmin;
+
+async function updatePackageRequestLeadManager(id, leadManagerUserId, status) {
+  await pool.query(
+    `UPDATE package_requests
+     SET lead_manager_user_id = ?, status = ?, updated_at = now()
+     WHERE id = ?`,
+    [leadManagerUserId, status, id]
+  );
+  const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
+  return rows[0] || null;
+}
+
+module.exports.updatePackageRequestLeadManager = updatePackageRequestLeadManager;
+
+async function updatePackageRequestCosting(
+  id,
+  { netCostBreakdown, markupRule, sellPrice, internalNotes, inclusions, exclusions, status }
+) {
+  await pool.query(
+    `UPDATE package_requests
+     SET net_cost_breakdown = ?, markup_rule = ?, sell_price = ?, internal_notes = ?,
+         inclusions = ?, exclusions = ?, status = ?, updated_at = now()
+     WHERE id = ?`,
+    [JSON.stringify(netCostBreakdown ?? null), JSON.stringify(markupRule ?? null), sellPrice, internalNotes, inclusions || '', exclusions || '', status, id]
+  );
+  const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
+  return rows[0] || null;
+}
+
+module.exports.updatePackageRequestCosting = updatePackageRequestCosting;
+
+async function updatePackageRequestItinerary(id, days) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await replaceItinerary(client, id, days);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+  const { rows } = await pool.query(`SELECT id FROM package_requests WHERE id = ?`, [id]);
+  return rows[0] || null;
+}
+
+module.exports.updatePackageRequestItinerary = updatePackageRequestItinerary;
+
+async function publishPackageRequest(id, publishedByUserId) {
+  await pool.query(
+    `UPDATE package_requests
+     SET status = 'published', published_at = now(), published_by_user_id = ?, updated_at = now()
+     WHERE id = ?`,
+    [publishedByUserId, id]
+  );
+  const { rows } = await pool.query(`SELECT * FROM package_requests WHERE id = ?`, [id]);
+  return rows[0] || null;
+}
+
+module.exports.publishPackageRequest = publishPackageRequest;

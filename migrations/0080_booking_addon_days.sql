@@ -1,0 +1,1 @@
+ALTER TABLE booking_addons ADD COLUMN day_numbers JSON NOT NULL DEFAULT (JSON_ARRAY());

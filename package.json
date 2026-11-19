@@ -1,0 +1,49 @@
+{
+  "name": "xclusiveoman-agent-portal-be",
+  "version": "1.0.0",
+  "description": "Xclusive Oman B2B & MICE Portal - shared REST/WebSocket API (agent + admin)",
+  "main": "app.js",
+  "engines": {
+    "node": "^18.20.8"
+  },
+  "scripts": {
+    "dev": "nodemon app.js",
+    "start": "node app.js",
+    "migrate": "node src/db/migrate.js",
+    "create-super-admin": "node scripts/create-super-admin.js",
+    "disable-admin-2fa": "node scripts/disable-admin-2fa.js",
+    "seed": "node scripts/seed.js",
+    "seed:reviews": "node scripts/seedReviews.js",
+    "seed-admin-passwords": "node scripts/seedAdminPasswords.js",
+    "assign-rms": "node scripts/assign-round-robin-rms.js",
+    "setup": "npm run migrate && npm run seed && npm run assign-rms && npm run seed-admin-passwords",
+    "predev": "npm run setup",
+    "test:security": "node --test tests/security.test.js"
+  },
+  "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@zxing/library": "^0.21.3",
+    "archiver": "^7.0.1",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.4.0",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^8.6.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.0",
+    "mysql2": "^3.24.4",
+    "node-cron": "^3.0.3",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.33.5",
+    "socket.io": "^4.7.5",
+    "tesseract.js": "^7.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}

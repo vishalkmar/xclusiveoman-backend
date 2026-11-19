@@ -1,0 +1,3 @@
+ALTER TABLE tours
+  ADD COLUMN category TEXT,
+  ADD COLUMN price DECIMAL(12,2);

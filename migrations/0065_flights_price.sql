@@ -1,0 +1,1 @@
+ALTER TABLE flights ADD COLUMN price DECIMAL(12,2);

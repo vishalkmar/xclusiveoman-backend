@@ -1,0 +1,5 @@
+-- No-op under MySQL: pgcrypto/gen_random_uuid() (Postgres-only) is no longer
+-- used — every table's id is generated app-side (src/utils/id.js#newId,
+-- crypto.randomUUID()) rather than by a DB-side default. Kept as an empty
+-- file rather than deleted/renumbered, since migrate.js tracks applied
+-- migrations by filename.
